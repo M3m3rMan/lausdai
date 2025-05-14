@@ -1,0 +1,8 @@
+fastapi>=0.68.0
+uvicorn>=0.15.0
+python-multipart>=0.0.5
+numpy>=1.21.0
+opencv-python>=4.5.0
+deep-translator>=1.9.2
+whisper @ git+https://github.com/openai/whisper.git
+torch>=2.3.0
