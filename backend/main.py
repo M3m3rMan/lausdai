@@ -1,20 +1,16 @@
 # ========== IMPORTS ==========
 import os
 import shutil
-import socket
-import subprocess
 import uuid
 import atexit
 import logging
 from datetime import datetime
-from typing import Any, Dict
-import whisper # type: ignore
-import numpy as np
-import cv2 # type: ignore
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException # type: ignore
-from fastapi.middleware.cors import CORSMiddleware # type: ignore
-from pydantic import BaseModel # type: ignore
-from deep_translator import GoogleTranslator # type: ignore
+from typing import Any, Dict, List, Optional
+import whisper
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Path, Query
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from deep_translator import GoogleTranslator
 
 # ========== SETTINGS ==========
 UPLOAD_DIR = "uploads"
@@ -36,7 +32,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins
+    allow_origins=["*"],  # Allow all origins for development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -49,6 +45,28 @@ try:
 except Exception as e:
     logger.error(f"❌ Failed to load Whisper model: {e}")
     raise e
+
+# ========== DATA MODELS ==========
+class Conversation(BaseModel):
+    id: str
+    userId: str
+    name: str
+    createdAt: str
+
+class Message(BaseModel):
+    id: str
+    text: str
+    sender: str  # 'user' or 'ai'
+    timestamp: str
+
+class AIProcessRequest(BaseModel):
+    message: str
+    conversationId: str
+    context: str
+
+class PredictionResponse(BaseModel):
+    transcript: str
+    translation: str
 
 # ========== TEMP FILES ==========
 temp_files = []
@@ -64,10 +82,6 @@ def cleanup_temp_files():
             logger.info(f"🧹 Deleted temp file: {path}")
 
 # ========== HELPERS ==========
-class PredictionResponse(BaseModel):
-    transcript: str
-    translation: str
-
 def save_upload(file: UploadFile) -> str:
     filename = f"video_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
     filepath = os.path.join(UPLOAD_DIR, filename)
@@ -78,7 +92,10 @@ def save_upload(file: UploadFile) -> str:
 
 # ========== ROUTES ==========
 @app.post("/predict", response_model=PredictionResponse)
-async def predict(file: UploadFile = File(...), target_language: str = Form("es")):
+async def predict(
+    file: UploadFile = File(...),
+    target_language: str = Form("es")
+):
     try:
         video_path = save_upload(file)
 
@@ -94,7 +111,6 @@ async def predict(file: UploadFile = File(...), target_language: str = Form("es"
         try:
             language_code = GoogleTranslator().get_supported_languages(as_dict=True).get(target_language.lower())
             if not language_code:
-                # If not found, assume it's already a code like 'es', 'en', 'tl'
                 language_code = target_language.lower()
         except Exception as e:
             logger.error(f"Failed to find language code for '{target_language}': {e}")
@@ -111,6 +127,55 @@ async def predict(file: UploadFile = File(...), target_language: str = Form("es"
     except Exception as e:
         logger.error(f"❌ Prediction failed: {e}")
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
+
+@app.get("/api/users/{user_id}/conversations", response_model=List[Conversation])
+async def get_user_conversations(user_id: str):
+    # Mock data - replace with database queries in production
+    return [
+        Conversation(
+            id="conv1",
+            userId=user_id,
+            name="First Conversation",
+            createdAt=datetime.now().isoformat()
+        ),
+        Conversation(
+            id="conv2",
+            userId=user_id,
+            name="School Questions",
+            createdAt=datetime.now().isoformat()
+        )
+    ]
+
+@app.post("/api/conversations", response_model=dict)
+async def create_conversation(
+    userId: str = Query(...),
+    initialMessage: str = Query(...),
+    language: str = Query("es")
+):
+    new_id = str(uuid.uuid4())
+    # In real app, save to database
+    return {"insertedId": new_id}
+
+@app.post("/api/conversations/{conversation_id}/messages", response_model=dict)
+async def add_message(
+    conversation_id: str,
+    message: Message
+):
+    # In real app, save message to database
+    return {"status": "success", "messageId": str(uuid.uuid4())}
+
+@app.post("/api/ai/process", response_model=dict)
+async def process_ai_request(request: AIProcessRequest):
+    # Use your existing translation logic
+    try:
+        translated = GoogleTranslator(source='auto', target='es').translate(request.message)
+        return {
+            "translation": translated,
+            "original": request.message,
+            "status": "success"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/", include_in_schema=False)
 async def root():

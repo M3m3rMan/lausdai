@@ -5,23 +5,222 @@ const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
-app.use(cors());
-app.use(express.json());
 
+// Enhanced CORS configuration
+app.use(cors({
+  origin: ['http://localhost', 'http://10.25.254.185'], // Add your frontend URLs
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
-}).then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('MongoDB error:', err));
+})
+.then(() => console.log('✅ MongoDB connected successfully'))
+.catch(err => console.error('❌ MongoDB connection error:', err));
 
-// Import chatbot routes
-const chatRoutes = require('./routes/chatRoutes');
-app.use('/api/chats', chatRoutes);
+// Chat Model
+const Chat = mongoose.model('Chat', new mongoose.Schema({
+  userId: String,
+  title: String,
+  messages: [{
+    sender: { type: String, enum: ['user', 'bot'] },
+    content: String,
+    timestamp: { type: Date, default: Date.now }
+  }],
+  createdAt: { type: Date, default: Date.now }
+}));
+
+// OpenAI Integration
+const { OpenAI } = require('openai');
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+// Chatbot Function
+async function askChatGPT(messages, context = "LAUSD_non_traditional_high_school") {
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o-mini', // or 'gpt-4' if available
+    messages: [
+      {
+        role: "system",
+        content: `You are a helpful assistant for LAUSD parents. Provide clear information about ${context} in Spanish or English as needed. Be empathetic and professional.`
+      },
+      ...messages.map(m => ({
+        role: m.sender === 'user' ? 'user' : 'assistant',
+        content: m.content
+      }))
+    ],
+    temperature: 0.7,
+  });
+  return completion.choices[0].message.content;
+}
+
+// Chat Routes
+app.post('/api/conversations', async (req, res) => {
+  try {
+    const { userId, initialMessage, language } = req.body;
+    const newChat = new Chat({
+      userId,
+      title: `Chat ${new Date().toLocaleDateString()}`,
+      messages: initialMessage ? [{
+        sender: 'bot',
+        content: initialMessage
+      }] : []
+    });
+    await newChat.save();
+    res.json({ insertedId: newChat._id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/conversations/:chatId/messages', async (req, res) => {
+  try {
+    const { text, sender, language } = req.body;
+    const chat = await Chat.findById(req.params.chatId);
+    
+    if (!chat) return res.status(404).json({ error: 'Chat not found' });
+    
+    // Add user message
+    chat.messages.push({ sender, content: text });
+    await chat.save();
+    
+    if (sender === 'user') {
+      // Get AI response
+      const botReply = await askChatGPT(chat.messages);
+      chat.messages.push({ sender: 'bot', content: botReply });
+      await chat.save();
+    }
+    
+    res.json(chat);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/users/:userId/conversations', async (req, res) => {
+  try {
+    const chats = await Chat.find({ userId: req.params.userId })
+      .sort({ createdAt: -1 });
+    res.json(chats.map(chat => ({
+      id: chat._id,
+      userId: chat.userId,
+      name: chat.title,
+      createdAt: chat.createdAt
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/conversations/:chatId/messages', async (req, res) => {
+  try {
+    const chat = await Chat.findById(req.params.chatId);
+    if (!chat) return res.status(404).json({ error: 'Chat not found' });
+    res.json(chat.messages);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Health Check
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+  });
+});
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🔗 http://localhost:${PORT}`);
+});
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// // server.js
+// const express = require('express');
+// const mongoose = require('mongoose');
+// const cors = require('cors');
+// require('dotenv').config();
+
+// const app = express();
+
+// // Enhanced CORS configuration
+// app.use(cors({
+//   origin: ['http://localhost', 'http://10.25.254.185'], // Add your frontend URLs
+//   methods: ['GET', 'POST', 'PUT', 'DELETE'],
+//   allowedHeaders: ['Content-Type', 'Authorization']
+// }));
+
+// app.use(express.json());
+// app.use(express.urlencoded({ extended: true }));
+
+// // MongoDB Connection
+// mongoose.connect(process.env.MONGODB_URI, {
+//   useNewUrlParser: true,
+//   useUnifiedTopology: true,
+// })
+// .then(() => console.log('✅ MongoDB connected successfully'))
+// .catch(err => console.error('❌ MongoDB connection error:', err));
+
+// // Health Check Endpoint
+// app.get('/health', (req, res) => {
+//   res.status(200).json({
+//     status: 'healthy',
+//     database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+//   });
+// });
+
+// // Import and use chat routes
+// const chatRoutes = require('./routes/chatRoutes');
+// app.use('/api/chats', chatRoutes);
+
+// // Error Handling Middleware
+// app.use((err, req, res, next) => {
+//   console.error('🚨 Error:', err.stack);
+//   res.status(500).json({ error: 'Something went wrong!' });
+// });
+
+// const PORT = process.env.PORT || 5000;
+// app.listen(PORT, () => {
+//   console.log(`🚀 Server running on port ${PORT}`);
+//   console.log(`🔗 http://localhost:${PORT}`);
+// });
 
 
 
