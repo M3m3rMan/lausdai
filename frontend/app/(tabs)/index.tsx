@@ -15,6 +15,8 @@ import {
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import Sidebar from './Sidebar'; // Make sure the path is correct
+import { Stack } from 'expo-router';
 
 // Types
 interface Conversation {
@@ -39,11 +41,34 @@ const App = () => {
   const [chats, setChats] = useState<Conversation[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSidebarVisible, setIsSidebarVisible] = useState(false);
   
   // Config
-  const CHAT_SERVER_URL = 'http://192.168.1.78';
+  const CHAT_SERVER_URL = 'http://192.168.1.78:5000';
   const flatListRef = useRef<FlatList>(null);
   const textInputRef = useRef<TextInput>(null);
+const api = axios.create({
+  baseURL: 'http://192.168.1.78:5000', // or :8000 for Python
+  headers: {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  }
+});
+
+// Example async function to use the api client
+const sendTestMessage = async () => {
+  try {
+    const response = await api.post('/api/conversations/123/messages', {
+      text: input,
+      sender: 'user'
+    });
+    // handle response if needed
+  } catch (err: any) {
+    if (err.response?.status === 403) {
+      Alert.alert("Error", "You don't have permission to access this resource");
+    }
+  }
+};
 
   // Load initial data
   useEffect(() => {
@@ -109,8 +134,36 @@ const App = () => {
       }]);
       
       setTimeout(() => textInputRef.current?.focus(), 100);
+      setIsSidebarVisible(false); // Close sidebar after creating new chat
     } catch (err) {
       Alert.alert("Error", "Could not create conversation");
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const deleteChat = async (chatId: string) => {
+    try {
+      setIsLoading(true);
+      await axios.delete(`${CHAT_SERVER_URL}/api/conversations/${chatId}`);
+      
+      setChats(chats.filter(chat => chat.id !== chatId));
+      
+      if (currentChatId === chatId) {
+        if (chats.length > 1) {
+          const newCurrentChat = chats.find(chat => chat.id !== chatId);
+          if (newCurrentChat) {
+            setCurrentChatId(newCurrentChat.id);
+            loadConversationMessages(newCurrentChat.id);
+          }
+        } else {
+          setCurrentChatId(null);
+          setMessages([]);
+        }
+      }
+    } catch (err) {
+      Alert.alert("Error", "Could not delete conversation");
       console.error(err);
     } finally {
       setIsLoading(false);
@@ -194,92 +247,82 @@ const App = () => {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.title}>LAUSD Parent Assistant</Text>
-        <TouchableOpacity onPress={createNewChat}>
-          <Ionicons name="add" size={24} color="white" />
-        </TouchableOpacity>
-      </View>
+      <Stack.Screen options={{ headerShown: false }} />
+      {/* Sidebar */}
+      <Sidebar
+        isVisible={isSidebarVisible}
+        chats={chats.map(chat => ({ _id: chat.id, name: chat.name }))}
+        onSelectChat={(chatId) => {
+          setCurrentChatId(chatId);
+          loadConversationMessages(chatId);
+          setIsSidebarVisible(false);
+        }}
+        onCreateNewChat={createNewChat}
+        onDeleteChat={deleteChat}
+        onClose={() => setIsSidebarVisible(false)}
+      />
 
-      {/* Conversation Tabs */}
-      <FlatList
-        horizontal
-        data={chats}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={[
-              styles.chatTab,
-              currentChatId === item.id && styles.activeChatTab
-            ]}
-            onPress={() => {
-              setCurrentChatId(item.id);
-              loadConversationMessages(item.id);
-            }}
-          >
-            <Text
-              style={[
-                styles.chatText,
-                currentChatId === item.id && styles.activeChatText
-              ]}
-              numberOfLines={1}
-            >
-              {item.name}
-            </Text>
+      {/* Main Content */}
+      <View style={[styles.mainContent, isSidebarVisible && styles.shiftedContent]}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => setIsSidebarVisible(true)}>
+            <Ionicons name="menu" size={24} color="white" />
           </TouchableOpacity>
-        )}
-        keyExtractor={item => item.id}
-        contentContainerStyle={styles.chatList}
-        showsHorizontalScrollIndicator={false}
-      />
+          <Text style={styles.title}>LAUSD Parent Assistant</Text>
+          <TouchableOpacity onPress={createNewChat}>
+            <Ionicons name="add" size={24} color="white" />
+          </TouchableOpacity>
+        </View>
 
-      {/* Messages */}
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        renderItem={({ item }) => <MessageBubble message={item} />}
-        keyExtractor={item => item.id}
-        contentContainerStyle={styles.messagesContainer}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No messages yet. Start a conversation!</Text>
-          </View>
-        }
-      />
-
-      {/* Input Area */}
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.inputContainer}
-      >
-        <TextInput
-          ref={textInputRef}
-          value={input}
-          onChangeText={setInput}
-          placeholder="Type your message..."
-          placeholderTextColor="#888"
-          style={styles.input}
-          editable={!!currentChatId && !isSending}
-          multiline
-          onSubmitEditing={sendMessage}
-          returnKeyType="send"
+        {/* Messages */}
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          renderItem={({ item }) => <MessageBubble message={item} />}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.messagesContainer}
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>No messages yet. Start a conversation!</Text>
+            </View>
+          }
         />
-        <TouchableOpacity
-          onPress={sendMessage}
-          disabled={!input.trim() || isSending}
-          style={[
-            styles.sendButton,
-            (!input.trim() || isSending) && styles.disabledButton
-          ]}
+
+        {/* Input Area */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.inputContainer}
         >
-          {isSending ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Ionicons name="send" size={20} color="white" />
-          )}
-        </TouchableOpacity>
-      </KeyboardAvoidingView>
+          <TextInput
+            ref={textInputRef}
+            value={input}
+            onChangeText={setInput}
+            placeholder="Type your message..."
+            placeholderTextColor="#888"
+            style={styles.input}
+            editable={!!currentChatId && !isSending}
+            multiline
+            onSubmitEditing={sendMessage}
+            returnKeyType="send"
+          />
+          <TouchableOpacity
+            onPress={sendMessage}
+            disabled={!input.trim() || isSending}
+            style={[
+              styles.sendButton,
+              (!input.trim() || isSending) && styles.disabledButton
+            ]}
+          >
+            {isSending ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Ionicons name="send" size={20} color="white" />
+            )}
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
+      </View>
     </View>
   );
 };
@@ -289,6 +332,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  mainContent: {
+    flex: 1,
+  },
+  shiftedContent: {
+    marginLeft: '80%', // Same as sidebar width
   },
   loadingContainer: {
     flex: 1,
@@ -306,28 +355,6 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 18,
     fontWeight: 'bold',
-  },
-  chatList: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    backgroundColor: '#e5e7eb',
-  },
-  chatTab: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginHorizontal: 4,
-    borderRadius: 16,
-    backgroundColor: '#f3f4f6',
-  },
-  activeChatTab: {
-    backgroundColor: '#1a56db',
-  },
-  chatText: {
-    color: '#4b5563',
-    fontSize: 14,
-  },
-  activeChatText: {
-    color: 'white',
   },
   messagesContainer: {
     flexGrow: 1,

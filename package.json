@@ -6,6 +6,7 @@
     "expo": "^53.0.9",
     "express": "^5.1.0",
     "mongoose": "^8.14.3",
-    "openai": "^4.98.0"
+    "openai": "^4.98.0",
+    "expo-secure-store": "~14.2.3"
   }
 }
