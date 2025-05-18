@@ -1,6 +1,11 @@
 {
   "dependencies": {
     "@react-navigation/stack": "^7.3.2",
-    "expo": "^53.0.9"
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "expo": "^53.0.9",
+    "express": "^5.1.0",
+    "mongoose": "^8.14.3",
+    "openai": "^4.98.0"
   }
 }

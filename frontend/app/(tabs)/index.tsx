@@ -28,7 +28,7 @@ const App = () => {
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   
   // Config
-  const BACKEND_URL = 'http://192.168.1.128:5000'; // Replace with your backend IP
+  const BACKEND_URL = 'http://10.25.254.185:5000'; // Replace with your backend IP
   const flatListRef = useRef<FlatList>(null);
 
   // Load initial data
